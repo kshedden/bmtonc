@@ -1,0 +1,56 @@
+\documentclass{beamer}
+\setbeamertemplate{footline}[page number]
+\usepackage{graphicx}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, citecolor=black, urlcolor=black, pdfpagemode=none}
+\usepackage{color}
+
+\begin{document}
+
+\begin{frame}
+
+\begin{itemize}
+
+\item Focus here on circadian patterns
+
+\item Estimate mean circadian patterns for caregivers and patients
+
+\item Identify factors that capture the individual deviations from the mean circadian pattern
+
+\item Seek dyadic effects in these individual deviations
+
+\item Seek dyadic effects in the HR traits (persistent, long temporal range, 
+repeated over many days) not the
+HR states (transient effects with short temporal range, unique to single days)
+
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}
+
+\begin{itemize}
+
+\item $y_{ijdt}$ is the heart rate for dyad $i$, role $j$, day $d$, time $t$; roles are
+caregiver ($j=1$) and patient ($j=2$)
+
+\item $\mu_j(t)$ is the mean for role $j$, and $z_{ijdt} = y_{ijdt} - \mu_j(t)$ is the 
+role-centered heart rate observation.
+
+\item Use a low-rank decomposition for incomplete matrices (essentially a factor analysis)
+to estimate factors $v_k \in {\cal R}^{1440}$ and scores $u_{ijdk}$, so that
+$y_{ijdt} \approx \mu_j(t) + u_{ijdk}\cdot v_{kt}$.
+
+\item $k=1, \ldots, K$ factors; use $K=3$ for now (mostly arbitrary choice)
+
+\item Decompose the variance of the scores according to 
+$u_{ijdk} = \theta_i + \eta_{ij} + \gamma_{idk} +\epsilon_{ijdk}$, with corresponding
+variances $\tau_\theta^2$, $\tau_\eta^2$, $\tau_\gamma^2$, and $\tau_\epsilon^2$.
+
+\item Rotate the factors to maximize $\tau_\theta^2 + 2\tau_\gamma^2$.
+
+\end{itemize}
+
+\end{frame}
+
+\end{document}
