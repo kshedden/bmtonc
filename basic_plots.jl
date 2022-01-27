@@ -3,7 +3,7 @@ using GZip, CSV, DataFrames, PyPlot, Printf, Dates
 rm("plots", recursive = true, force = true)
 mkdir("plots")
 
-src = "bmt"
+src = "onc"
 
 df = GZip.open("/home/kshedden/data/Sung_Choi/long/$(src).csv.gz") do io
     CSV.read(io, DataFrame)
