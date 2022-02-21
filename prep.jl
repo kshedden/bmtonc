@@ -17,8 +17,8 @@ bmt_info = GZip.open(joinpath(pa, "roadmap_bmt.csv.gz")) do io
 end
 
 function clean_info(info)
-	info = info[:, [:caregiver_id, :cg_study_id, :patient_id, :pat_study_id]]
-	return info
+    info = info[:, [:caregiver_id, :cg_study_id, :patient_id, :pat_study_id]]
+    return info
 end
 
 onc_info = clean_info(onc_info)
@@ -30,18 +30,18 @@ function read_all(pa, id1, id2)
     fi = readdir(pa)
 
     dtf = DateFormat("y-m-d H:M:S")
-	println("Reading $(pa)")
+    println("Reading $(pa)")
     dl = []
     for f in fi
-    	paf = joinpath(pa, f)
-    	if !isdir(paf)
-    		continue
-    	end
+        paf = joinpath(pa, f)
+        if !isdir(paf)
+            continue
+        end
         fx = readdir(paf)
-		fx = [a for a in fx if occursin("HEART", a)]
-		if length(fx) == 0
-			continue
-		end
+        fx = [a for a in fx if occursin("HEART", a)]
+        if length(fx) == 0
+            continue
+        end
 
         # If people have multiple heartrate files choose one of them
         fy = joinpath(pa, f, fx[1])
@@ -55,9 +55,9 @@ function read_all(pa, id1, id2)
         push!(dl, dd)
     end
 
-	if length(dl) == 0
-		return nothing
-	end
+    if length(dl) == 0
+        return nothing
+    end
     dd = vcat(dl...)
     dd[:, :id] .= id2
     dd = sort(dd, :Time)

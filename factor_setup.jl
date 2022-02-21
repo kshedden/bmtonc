@@ -8,7 +8,7 @@ paw = joinpath(pa, "wide")
 # stacked vertically.  There are 1440 columns corresponding
 # to minutes within the day.  Since these data are used for
 # factor analysis, the rows are mean centered.
-function factor_setup(src::String; save::Bool=false)
+function factor_setup(src::String; save::Bool = false)
 
     @assert src == "onc" || src == "bmt"
 
@@ -25,11 +25,11 @@ function factor_setup(src::String; save::Bool=false)
     cg, pt, dyad_info = make_data(df)
 
     if save
-	    # Save the caregiver means
-	    cg_mean = dmean(cg)
-	    GZip.open("cg_mean_$(src).csv.gz", "w") do io
-    	    CSV.write(io, cg_mean)
-    	end
+        # Save the caregiver means
+        cg_mean = dmean(cg)
+        GZip.open("cg_mean_$(src).csv.gz", "w") do io
+            CSV.write(io, cg_mean)
+        end
 
         # Save the patient means
         pt_mean = dmean(pt)
@@ -39,16 +39,17 @@ function factor_setup(src::String; save::Bool=false)
 
         # Save the data
         for (k, ds) in enumerate([cg, pt])
-        	dz = DataFrame(ds')
-        	rename!(dz, ["Minute$(j)" for j in 1:1440])
-        	dz[:, :ID] = dyad_info.ID
-        	dz[:, :Day] = dyad_info.Day
-        	c = vcat(["ID", "Day"], ["Minute$(j)" for j in 1:1440])
-        	dz = dz[:, c]
-	        GZip.open("$(paw)/$(src)_wide.csv.gz", "w") do io
-    	    	CSV.write(io, dz)
-        	end
-		end
+            dz = DataFrame(ds')
+            rename!(dz, ["Minute$(j)" for j = 1:1440])
+            dz[:, :ID] = dyad_info.ID
+            dz[:, :Day] = dyad_info.Day
+            c = vcat(["ID", "Day"], ["Minute$(j)" for j = 1:1440])
+            dz = dz[:, c]
+            xp = ["cg", "pt"][k]
+            GZip.open("$(paw)/$(src)_$(xp)_wide.csv.gz", "w") do io
+                CSV.write(io, dz)
+            end
+        end
     end
 
     # Center the caregivers and patients for each minute, and stack them vertically.

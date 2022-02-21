@@ -18,7 +18,8 @@ end
 
 for src in ["bmt", "onc"]
 
-    mx, dyad_info = factor_setup(src, save=false)
+    mx, dyad_info = factor_setup(src, save = true)
+    continue
     obs = getobs(mx)
 
     # Fit 1, 2, and 3 factor models.
