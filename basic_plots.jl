@@ -1,11 +1,12 @@
-using GZip, CSV, DataFrames, PyPlot, Printf, Dates
+using CodecZlib, CSV, DataFrames, PyPlot, Printf, Dates
 
 rm("plots", recursive = true, force = true)
 mkdir("plots")
 
-src = "onc"
+src = "bmt"
 
-df = GZip.open("/home/kshedden/data/Sung_Choi/long/$(src).csv.gz") do io
+f = "/home/kshedden/data/Sung_Choi/long/$(src).csv.gz"
+df = open(GzipDecompressorStream, f) do io
     CSV.read(io, DataFrame)
 end
 
@@ -16,7 +17,6 @@ ifig = 0
 function make_plots(ifig)
 
     for dd in groupby(df, :id_caregiver)
-
         for (jj, de) in enumerate(groupby(dd, :Date))
 
             # Only plot 10 days per dyad

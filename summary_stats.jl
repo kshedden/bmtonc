@@ -1,4 +1,4 @@
-using DataFrames, GZip, CSV, Dates, Printf
+using DataFrames, Dates, Printf
 
 # Produce some basic summary statistics for each dataset
 

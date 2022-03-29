@@ -1,4 +1,4 @@
-using DataFrames, GZip, CSV, Dates, Statistics, Tables
+using DataFrames, CodecZlib, CSV, Dates, Statistics, Tables
 
 pa = "/home/kshedden/data/Sung_Choi"
 pal = joinpath(pa, "long")
@@ -12,7 +12,7 @@ function factor_setup(src::String; save::Bool = false)
 
     @assert src == "onc" || src == "bmt"
 
-    df = GZip.open("$(pal)/$(src)_long.csv.gz") do io
+    df = open(GzipDecompressorStream, "$(pal)/$(src).csv.gz") do io
         CSV.read(io, DataFrame)
     end
 
@@ -27,26 +27,27 @@ function factor_setup(src::String; save::Bool = false)
     if save
         # Save the caregiver means
         cg_mean = dmean(cg)
-        GZip.open("cg_mean_$(src).csv.gz", "w") do io
+        open(GzipCompressorStream, "cg_mean_$(src).csv.gz", "w") do io
             CSV.write(io, cg_mean)
         end
 
         # Save the patient means
         pt_mean = dmean(pt)
-        GZip.open("pt_mean_$(src).csv.gz", "w") do io
+        open(GzipCompressorStream, "pt_mean_$(src).csv.gz", "w") do io
             CSV.write(io, pt_mean)
         end
 
         # Save the data
         for (k, ds) in enumerate([cg, pt])
-            dz = DataFrame(ds')
+            dz = DataFrame(copy(ds'), :auto)
+            println(size(dz))
             rename!(dz, ["Minute$(j)" for j = 1:1440])
             dz[:, :ID] = dyad_info.ID
             dz[:, :Day] = dyad_info.Day
             c = vcat(["ID", "Day"], ["Minute$(j)" for j = 1:1440])
             dz = dz[:, c]
             xp = ["cg", "pt"][k]
-            GZip.open("$(paw)/$(src)_$(xp)_wide.csv.gz", "w") do io
+            open(GzipCompressorStream, "$(paw)/$(src)_$(xp)_wide.csv.gz", "w") do io
                 CSV.write(io, dz)
             end
         end

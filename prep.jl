@@ -1,4 +1,4 @@
-using CSV, GZip, DataFrames, Dates
+using CSV, CodecZlib, DataFrames, Dates
 
 # The design information files and file long-form data are here
 pa = "/home/kshedden/data/Sung_Choi"
@@ -7,13 +7,13 @@ pa = "/home/kshedden/data/Sung_Choi"
 px = "/nfs/turbo/umms-sungchoi/ROADMAP_ALL"
 
 # Read the oncology study design information
-onc_info = GZip.open(joinpath(pa, "roadmap_onc.csv.gz")) do io
-    CSV.read(io, DataFrame)
+onc_info = open(joinpath(pa, "roadmap_onc.csv.gz")) do io
+    CSV.read(GzipDecompressorStream(io), DataFrame)
 end
 
 # Read the roadmap study design information
-bmt_info = GZip.open(joinpath(pa, "roadmap_bmt.csv.gz")) do io
-    CSV.read(io, DataFrame)
+bmt_info = open(joinpath(pa, "roadmap_bmt.csv.gz")) do io
+    CSV.read(GzipDecompressorStream(io), DataFrame)
 end
 
 function clean_info(info)
@@ -66,8 +66,8 @@ end
 
 function make_long(info, sname)
 
-    otn = joinpath(pa, "long", "$(sname)_long.csv.gz")
-    out = GZip.open(otn, "w")
+    otn = joinpath(pa, "long", "$(sname).csv.gz")
+    out = GzipCompressorStream(open(otn, "w"))
     app = false
 
     # Process each patient/caregiver dyad
