@@ -26,7 +26,7 @@ end
 function vardecomp(v::AbstractVector, dyad_info, randomize::Bool)
 
     # i=dyad, j=person, k=day
-    # y_ijk = a_i + b_ij + c_ik + e_ijk 
+    # y_ijk = a_i + b_ij + c_ik + e_ijk
 
     y = (v .- mean(v)) / std(v)
 

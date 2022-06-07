@@ -9,7 +9,7 @@ f = "/home/kshedden/data/Sung_Choi/long/$(src).csv.gz"
 df = open(GzipDecompressorStream, f) do io
     CSV.read(io, DataFrame)
 end
-
+error("")
 df[:, :Date] = Date.(df[:, :Time])
 
 ifig = 0

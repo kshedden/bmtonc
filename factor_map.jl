@@ -1,5 +1,6 @@
 using CodecZlib, CSV, Tables, LinearAlgebra, Statistics
-using Printf, Distributions, Random
+using Printf, Distributions, Random, SupportPoints
+using StableRNGs
 
 Random.seed!(42)
 
@@ -29,9 +30,10 @@ end
 function vardecomp(v::AbstractVector, dyad_info::AbstractDataFrame, randomize::Bool)
 
     # i=dyad, j=person, k=day
-    # y_ijk = a_i + b_ij + c_ik + e_ijk 
+    # y_ijk = a_i + b_ij + c_ik + e_ijk
 
-    y = (v .- mean(v)) / std(v)
+    #y = (v .- mean(v)) / std(v)
+    y = v .- mean(v)
 
     dyad_info_cg = copy(dyad_info)
     dyad_info_cg[:, :role] .= "caregiver"
@@ -103,89 +105,144 @@ function vardecomp(v::AbstractVector, dyad_info::AbstractDataFrame, randomize::B
     ss2 = clamp(ss2 / qq2, 0, Inf)
     ss3 = clamp(ss3 / qq3, 0, Inf)
     ss4 = clamp(ss4 / qq4, 0, Inf)
+
+    ss2 -= ss1
+    ss3 -= ss1
+    ss2 = clamp(ss2, 0, Inf)
+    ss3 = clamp(ss3, 0, Inf)
+
+    ss4 -= (ss1 + ss2 + ss3)
+    ss4 = clamp(ss4, 0, Inf)
+
     x = [ss1, ss2, ss3, ss4]
-    x ./= sum(x)
-    return x
+    return x ./ sum(x), x
 end
 
-function xfill(uu::AbstractMatrix, vv::AbstractMatrix, np::Int, dyad_info)
+# Generate a random rotation of the low rank fit.
+function random_rot(uu, vv, n, q, rng)
+    dv = diagm(1 ./ sqrt.(diag(vv' * vv / n)))
+    dt = randn(rng, q, q)
+    dt, _, _ = svd(dt)
+    dt = dv * dt
+    uu = uu / dt'  # loadings
+    vv = vv * dt # scores
+    for j = 1:size(vv, 2)
+        f = norm(uu[:, j])
+        uu[:, j] ./= f
+        vv[:, j] .*= f
 
+        # Flip the loadings so that more are positive than negative
+        if sum(uu[:, j] .< 0) > sum(uu[:, j] .>= 0)
+            uu[:, j] .*= -1
+            vv[:, j] .*= -1
+        end
+    end
+    return uu, vv
+end
+
+function explore(
+    uu::AbstractMatrix,
+    vv::AbstractMatrix,
+    np::Int,
+    dyad_info;
+    nsp = 20,
+    npt = 2000,
+    nrand = 10,
+)
+    uu0, vv0 = copy(uu), copy(vv)
     n, q = size(uu)
     @assert size(uu, 2) == size(vv, 2)
+    n2 = div(n, 2)
 
-    loadall = zeros(1440, np)
-    vdb = Float64[0, 0, 0, 0]
-    vdc = zeros(n, 4)
-    vds = zeros(size(vv, 1), 4)
-    vdm = zeros(4, np)
-    for ii = 1:np
-        println("ii=", ii)
-        @assert isapprox(mean(vv, dims = 1)[:], zeros(size(vv, 2)), atol = 1e-8)
-
-        # Generate a random rotation of the low rank fit.
-        dv = diagm(1 ./ sqrt.(diag(vv' * vv / n)))
-        dt = randn(q, q)
-        dt, _, _ = svd(dt)
-        dt = dv * dt
-        uu = uu / dt'  # loadings
-        vv = vv * dt # scores
-        for j = 1:size(vv, 2)
-            f = norm(uu[:, j])
-            uu[:, j] ./= f
-            vv[:, j] .*= f
-
-            # Flip the loadings so that more are positive than negative
-            if sum(uu[:, j] .< 0) > sum(uu[:, j] .>= 0)
-                uu[:, j] .*= -1
-                vv[:, j] .*= -1
-            end
-        end
-
-        vvx = center_subjects(vv)[:, 1]
-        vd = vardecomp(vvx, dyad_info, false)
-        vdm[:, ii] = vd
+    rng = StableRNG(123)
+    loadall = zeros(1440, npt)
+    for ii = 1:npt
+        uu, vv = random_rot(uu, vv, n, q, rng)
         loadall[:, ii] = uu[:, 1]
+    end
 
-        for j = 1:4
-            if ii == 1 || vd[j] > vdb[j]
-                vdb[j] = vd[j]
-                vdc[:, j] = uu[:, 1]
-                vds[:, j] = vvx
+    # Find the closest factor pattern to each support point.
+    xx = supportpoints(loadall, nsp; maxit = 20, verbose = true)
+    jj = zeros(Int, nsp)
+    for i = 1:nsp
+        dd = [norm(loadall[:, j] - xx[:, i]) for j = 1:size(loadall, 2)]
+        _, jj[i] = findmin(dd)
+    end
+
+    # Reset so that we get the same (uu, vv) values in the same order as above.
+    rng = StableRNG(123)
+    uu .= uu0
+    vv .= vv0
+    loadallx = copy(loadall)
+
+    loadall = zeros(1440, nsp)
+    vda = zeros(4, nsp)
+    vdx = zeros(4, nsp)
+    vdq_cg = zeros(9, nsp)
+    vdq_pt = zeros(9, nsp)
+    pp = collect(range(0.1, 0.9, length = 9))
+    vdar = [zeros(4, nsp) for _ = 1:nrand]
+    kk = 1
+    for ii = 1:npt
+        uu, vv = random_rot(uu, vv, n, q, rng)
+        @assert isapprox(uu[:, 1], loadallx[:, ii])
+        if ii in jj
+            println(kk)
+            vdq_cg[:, kk] = quantile(vv[1:n2, 1], pp)
+            vdq_pt[:, kk] = quantile(vv[n2+1:end, 1], pp)
+            vvx = center_subjects(vv)[:, 1]
+            vda[:, kk], vdx[:, kk] = vardecomp(vvx, dyad_info, false)
+            for q = 1:nrand
+                vdar[q][:, kk], _ = vardecomp(vvx, dyad_info, true)
             end
+            loadall[:, kk] = uu[:, 1]
+            kk += 1
         end
     end
 
-    return vdm, vdb, vdc, vds, loadall
+    return loadall, vda, vdx, vdq_cg, vdq_pt, vdar
 end
 
-function save_results(loadall::AbstractMatrix, vdm::AbstractMatrix, 
-                      vdb::AbstractVector, vds::AbstractMatrix, 
-                      vdc::AbstractMatrix, src::String, qq::Int)
+function save_results(
+    loadall::AbstractMatrix,
+    vda::AbstractMatrix,
+    vdx::AbstractMatrix,
+    vdq_cg::AbstractMatrix,
+    vdq_pt::AbstractMatrix,
+    vdar::AbstractVector,
+    src::String,
+)
+    f = @sprintf("results/%s_%d_loadall.csv.gz", src, qq)
+    open(GzipCompressorStream, f, "w") do io
+        CSV.write(io, Tables.table(loadall))
+    end
 
-	f = @sprintf("%s_%d_loadall.csv.gz", src, qq)
-	open(GzipCompressorStream, f, "w") do io
-		CSV.write(io, Tables.table(loadall))
-	end
+    f = @sprintf("results/%s_%d_vda.csv.gz", src, qq)
+    open(GzipCompressorStream, f, "w") do io
+        CSV.write(io, Tables.table(vda))
+    end
 
-	f = @sprintf("%s_%d_vdm.csv.gz", src, qq)
-	open(GzipCompressorStream, f, "w") do io
-		CSV.write(io, Tables.table(vdm))
-	end
+    f = @sprintf("results/%s_%d_vdx.csv.gz", src, qq)
+    open(GzipCompressorStream, f, "w") do io
+        CSV.write(io, Tables.table(vdx))
+    end
 
-	f = @sprintf("%s_%d_vdb.csv.gz", src, qq)
-	open(GzipCompressorStream, f, "w") do io
-		CSV.write(io, Tables.table(vdb))
-	end
+    f = @sprintf("results/%s_%d_vdq_cg.csv.gz", src, qq)
+    open(GzipCompressorStream, f, "w") do io
+        CSV.write(io, Tables.table(vdq_cg))
+    end
 
-	f = @sprintf("%s_%d_vds.csv.gz", src, qq)
-	open(GzipCompressorStream, f, "w") do io
-		CSV.write(io, Tables.table(vds))
-	end
+    f = @sprintf("results/%s_%d_vdq_pt.csv.gz", src, qq)
+    open(GzipCompressorStream, f, "w") do io
+        CSV.write(io, Tables.table(vdq_pt))
+    end
 
-	f = @sprintf("%s_%d_vdc.csv.gz", src, qq)
-	open(GzipCompressorStream, f, "w") do io
-		CSV.write(io, Tables.table(vdc))
-	end
+    for ii in eachindex(vdar)
+        f = @sprintf("results/%s_%d_vda_%d.csv.gz", src, qq, ii)
+        open(GzipCompressorStream, f, "w") do io
+            CSV.write(io, Tables.table(vdar[ii]))
+        end
+    end
 end
 
 function load_start(src, qq)
@@ -200,7 +257,7 @@ function load_start(src, qq)
     end
 
     uu, vv, mn = rotate_orthog(uu, vv)
-	return uu, vv, mn
+    return uu, vv, mn
 end
 
 # Use the solutions with qq factors
@@ -209,12 +266,17 @@ qq = 5
 # Number of points to generate
 npt = 2000
 
+# Numbar of support points
+nsp = 20
+nrand = 100
+
 function main()
     for src in ["bmt", "onc"]
-	    mx, dyad_info = factor_setup(src)
-    	uu, vv, mn = load_start(src, qq)
-	    vdm, vdb, vdc, vds, loadall = xfill(uu, vv, npt, dyad_info)
-		save_results(loadall, vdm, vdb, vds, vdc, src, qq)
+        mx, dyad_info = factor_setup(src)
+        uu, vv, mn = load_start(src, qq)
+        loadall, vda, vdx, vdq_cg, vdq_pt, vdar =
+            explore(uu, vv, npt, dyad_info; nsp = nsp, npt = npt, nrand = nrand)
+        save_results(loadall, vda, vdx, vdq_cg, vdq_pt, vdar, src)
     end
 end
 
