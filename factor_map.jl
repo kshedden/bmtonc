@@ -178,8 +178,6 @@ function explore(
     loadall = zeros(1440, nsp)
     vda = zeros(4, nsp)
     vdx = zeros(4, nsp)
-    vdq_cg = zeros(9, nsp)
-    vdq_pt = zeros(9, nsp)
     pp = collect(range(0.1, 0.9, length = 9))
     vdar = [zeros(4, nsp) for _ = 1:nrand]
     kk = 1
@@ -188,8 +186,6 @@ function explore(
         @assert isapprox(uu[:, 1], loadallx[:, ii])
         if ii in jj
             println(kk)
-            vdq_cg[:, kk] = quantile(vv[1:n2, 1], pp)
-            vdq_pt[:, kk] = quantile(vv[n2+1:end, 1], pp)
             vvx = center_subjects(vv)[:, 1]
             vda[:, kk], vdx[:, kk] = vardecomp(vvx, dyad_info, false)
             for q = 1:nrand
@@ -200,15 +196,13 @@ function explore(
         end
     end
 
-    return loadall, vda, vdx, vdq_cg, vdq_pt, vdar
+    return loadall, vda, vdx, vdar
 end
 
 function save_results(
     loadall::AbstractMatrix,
     vda::AbstractMatrix,
     vdx::AbstractMatrix,
-    vdq_cg::AbstractMatrix,
-    vdq_pt::AbstractMatrix,
     vdar::AbstractVector,
     src::String,
 )
@@ -225,16 +219,6 @@ function save_results(
     f = @sprintf("results/%s_%d_vdx.csv.gz", src, qq)
     open(GzipCompressorStream, f, "w") do io
         CSV.write(io, Tables.table(vdx))
-    end
-
-    f = @sprintf("results/%s_%d_vdq_cg.csv.gz", src, qq)
-    open(GzipCompressorStream, f, "w") do io
-        CSV.write(io, Tables.table(vdq_cg))
-    end
-
-    f = @sprintf("results/%s_%d_vdq_pt.csv.gz", src, qq)
-    open(GzipCompressorStream, f, "w") do io
-        CSV.write(io, Tables.table(vdq_pt))
     end
 
     for ii in eachindex(vdar)
@@ -274,9 +258,9 @@ function main()
     for src in ["bmt", "onc"]
         mx, dyad_info = factor_setup(src)
         uu, vv, mn = load_start(src, qq)
-        loadall, vda, vdx, vdq_cg, vdq_pt, vdar =
+        loadall, vda, vdx, vdar =
             explore(uu, vv, npt, dyad_info; nsp = nsp, npt = npt, nrand = nrand)
-        save_results(loadall, vda, vdx, vdq_cg, vdq_pt, vdar, src)
+        save_results(loadall, vda, vdx, vdar, src)
     end
 end
 

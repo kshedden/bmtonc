@@ -46,18 +46,6 @@ function load_data(src, qq)
         CSV.read(io, Tables.matrix)
     end
 
-    # Observed data caregiver score quantiles
-    f = @sprintf("results/%s_%d_vdq_cg.csv.gz", src, qq)
-    vdq_cg = open(GzipDecompressorStream, f) do io
-        CSV.read(io, Tables.matrix)
-    end
-
-    # Observed data patient score quantiles
-    f = @sprintf("results/%s_%d_vdq_pt.csv.gz", src, qq)
-    vdq_pt = open(GzipDecompressorStream, f) do io
-        CSV.read(io, Tables.matrix)
-    end
-
     # Observed data ICC values for every loading vector in loadall
     vdar = []
     for k = 1:100
@@ -68,7 +56,7 @@ function load_data(src, qq)
         push!(vdar, va)
     end
 
-    return cg_mean, pt_mean, loadall, vda, vdx, vdq_cg, vdq_pt, vdar
+    return cg_mean, pt_mean, loadall, vda, vdx, vdar
 end
 
 function plot_means(src, cg_mean, pt_mean, ifig)
@@ -88,7 +76,7 @@ function plot_means(src, cg_mean, pt_mean, ifig)
     return ifig + 1
 end
 
-function plot_components(src, loadall, vda, vdx, dq_cg, vdq_pt, cg_mean, pt_mean, ifig)
+function plot_components(src, loadall, vda, vdx, cg_mean, pt_mean, ifig)
     hh = collect(range(1, 1440) / 60)
     pp = collect(range(0.1, 0.9, length = 9))
     for j = 1:4
@@ -244,10 +232,9 @@ function main(ifig)
     out = open("factor_map_$(qq).txt", "w")
 
     for src in ["bmt", "onc"]
-        cg_mean, pt_mean, loadall, vda, vdx, vdq_cg, vdq_pt, vdar = load_data(src, qq)
+        cg_mean, pt_mean, loadall, vda, vdx, vdar = load_data(src, qq)
         ifig = plot_means(src, cg_mean, pt_mean, ifig)
-        ifig =
-            plot_components(src, loadall, vda, vdx, vdq_cg, vdq_pt, cg_mean, pt_mean, ifig)
+        ifig = plot_components(src, loadall, vda, vdx, cg_mean, pt_mean, ifig)
         ifig = spaghetti(loadall, vda, vdar, src, qq, ifig)
         ifig = factor_summary(vda, vdar, src, qq, out, ifig)
     end
