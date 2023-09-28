@@ -8,7 +8,11 @@ using Statistics
 using StatsBase
 using Random
 using CairoMakie
+using Serialization
 using MixedModels
+using EstimatingEquationsRegression
+using GLM
+using UnicodePlots
 
 rm("plots", recursive = true, force = true)
 mkdir("plots")
@@ -51,7 +55,6 @@ function plot_factors(rr, cr, ifig)
 
     (; Xm, Xc, Ym, Yc, Sxx, A, d) = rr
 
-    scores_pt, scores_cg = predict(rr; verbose=false)
     A, B = coef(rr)
 
     for j in 1:d
@@ -59,18 +62,19 @@ function plot_factors(rr, cr, ifig)
         ifig = plot_factors1(rr, j, Ym, Yc, scores_cg[:, j], B[:, j], "caregiver", cr[j], ifig)
     end
 
-    return scores_pt, scores_cg, ifig
+    return ifig
 end
 
-function prep_profile(scores_pt, scores_cg, demog)
+function prep_profile(scores_pt, scores_cg, demog, mood)
 
     id = vcat(da[1][:, :ID], da[2][:, :ID])
     scores = vcat(scores_pt, scores_cg)
     date = vcat(da[1][:, :Date], da[2][:, :Date])
+    day = vcat(da[1][:, :day], da[2][:, :day])
     n = size(da[1], 1)
     dyad = ["$x-$y" for (x, y) in zip(da[1][:, :ID], da[2][:, :ID])]
     dyad = vcat(dyad, dyad)
-    dx = DataFrame(person=id, scores=scores, date=date, dyad=dyad)
+    dx = DataFrame(person=id, scores=scores, date=date, dyad=dyad, day=day)
     dx[:, :dayofweek] = [ismissing(x) ? missing : dayofweek(x) for x in dx[:, :date]]
     dx[:, :dayofyear] = [ismissing(x) ? missing : dayofyear(x) for x in dx[:, :date]]
     dx[:, :season_cos] = cos.(2*pi*dx[:, :dayofyear] / 365.25)
@@ -85,23 +89,42 @@ function prep_profile(scores_pt, scores_cg, demog)
     dx = leftjoin(dx, demog, on=:person=>:ID)
 
     # Merge in the mood variables
-    mood1 = select(mood, Not(:role))
-    dx = leftjoin(dx, mood1, on=[:person=>:id, :date=>:date])
+    mood = select(mood, Not(:role))
+    dx = leftjoin(dx, mood, on=[:person=>:id, :date=>:date])
+
+    dx = sort(dx, [:dyad, :person, :date])
 
     return dx
 end
 
-function profile_scores1(dx, mstruct, out)
+function setup_dx(mstruct, ranef, dx)
 
-    fml = if mstruct == 1
-        @formula(scores ~ role + gender + dayofweek + season_cos + season_sin + age +
-                  cg_relationship + cg_arm + (1 | dyadday) + (1 | dyad) + (1 | person))
+    v = if mstruct == 1
+        [:role, :gender, :dayofweek, :season_cos, :season_sin, :age,
+         :cg_relationship, :cg_arm, :day]
     elseif mstruct == 2
-        @formula(scores ~ role + gender + dayofweek + season_cos + season_sin + age +
-                  mood1 + (1 | dyadday) + (1 | dyad) + (1 | person))
+        [:role, :gender, :dayofweek, :season_cos, :season_sin, :age,
+         :cg_relationship, :cg_arm, :day, :mood1]
     else
         error("Unknown mstruct")
     end
+
+    f = if ranef
+        term(:scores) ~ term(1) + sum(term.(v)) + (term(1) | term(:dyad)) + (term(1) | term(:person)) + (term(1) | term(:dyadday))
+    else
+        term(:scores) ~ term(1) + sum(term.(v))
+    end
+
+    v = vcat(:scores, v, :dyad, :person, :dyadday)
+    dx = dx[:, v]
+    dx = dx[completecases(dx), :]
+
+    return f, dx
+end
+
+function profile_scores1(dx, mstruct, out)
+
+    fml, dx = setup_dx(mstruct, true, dx)
 
     contrasts = Dict(:dayofweek=>DummyCoding())
     mm = fit(MixedModel, fml, dx, contrasts=contrasts)
@@ -125,24 +148,44 @@ function profile_scores1(dx, mstruct, out)
         write(out, @sprintf("Seasonal peak: %.2f\n\n", peak))
     end
 
-    #make_contrasts(mm, dx, out)
+    return mm
+end
+
+function profile_scores_gee1(dx, mstruct, out)
+
+    fml, dx = setup_dx(mstruct, false, dx)
+
+    contrasts = Dict(:dayofweek=>DummyCoding())
+    mm = gee(fml, dx, dx[:, :dyad], IdentityLink(), ConstantVar(),
+             IndependenceCor(); bccor=false, contrasts=contrasts)
+    write(out, @sprintf("\n%d distinct people\n", length(unique(dx[:, :person]))))
+    write(out, @sprintf("%d distinct dyads\n", length(unique(dx[:, :dyad]))))
+    write(out, @sprintf("%d distinct dyad-days\n", length(unique(dx[:, :dyadday]))))
+    write(out, string(mm))
+    write(out, "\n")
+
+    if mstruct == 1
+        amp, peak = get_season(mm)
+        write(out, @sprintf("Seasonal amplitude: %.2f\n", amp))
+        write(out, @sprintf("Seasonal peak: %.2f\n\n", peak))
+    end
 
     return mm
 end
 
-function profile_scores(scores_pt, scores_cg, out, ifig)
+function profile_scores(scores_pt, scores_cg, out)
 
     d = size(scores_pt, 2)
     for j in 1:d
 
-        dx = prep_profile(scores_pt[:, j], scores_cg[:, j], demog)
+        dx = prep_profile(scores_pt[:, j], scores_cg[:, j], demog, mood)
 
         write(out, @sprintf("\n\nComponent %d:\n", j))
         for mstruct in 1:2
-            mm = profile_scores1(dx, mstruct, out)
+            #mmix = profile_scores1(dx, mstruct, out)
+            mgee = profile_scores_gee1(dx, mstruct, out)
         end
     end
-    return ifig
 end
 
 
@@ -194,20 +237,33 @@ function sample_scores(scores, dm, group, ifig)
 end
 
 rr = open(joinpath(dp, "rr.ser")) do io
-    deserialize(io, rr)
+    deserialize(io)
+end
+
+scores_pt = open(joinpath(dp, "scores_pt.ser")) do io
+    deserialize(io)
+end
+
+scores_cg = open(joinpath(dp, "scores_cg.ser")) do io
+    deserialize(io)
 end
 
 cr = CompositeMultivariateAnalysis.cor(rr)
+da, dm = load_data2()
+
+out = open("2way_models.txt", "w")
 
 ifig = 0
 ifig = plot_means(rr, ifig)
-scores_pt, scores_cg, ifig = plot_factors(rr, cr, ifig)
+ifig = plot_factors(rr, cr, ifig)
 
 ifig = sample_scores(scores_pt, dm[1], "patient", ifig)
 ifig = sample_scores(scores_cg, dm[2], "caregiver", ifig)
 
-ifig = profile_scores(scores_pt, scores_cg, out, ifig)
+profile_scores(scores_pt, scores_cg, out)
 
 f = [@sprintf("plots/%03d.pdf", j) for j = 0:ifig-1]
 c = `gs -sDEVICE=pdfwrite -dNOPAUSE -dBATCH -dSAFER -sOutputFile=$2way.pdf $f`
 run(c)
+
+close(out)

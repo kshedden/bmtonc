@@ -1,56 +1,46 @@
-\documentclass{beamer}
-\setbeamertemplate{footline}[page number]
-\usepackage{graphicx}
-\usepackage{hyperref}
-\hypersetup{colorlinks=true, citecolor=black, urlcolor=black, pdfpagemode=none}
-\usepackage{color}
-
+\documentclass[12pt]{article}
+\usepackage{parskip}
+\usepackage[margin=0.5in]{geometry}
 \begin{document}
 
-\begin{frame}
+\noindent{\bf Statistical methods}
 
-\begin{itemize}
+We have $n$ observations (dyad-days), each of which is
+represented by two 288-dimensional vectors of heart rate
+values. The elements of these two vectors correspond to
+the 288 blocks of 5 minute duration during a 24-hour day,
+and there is one such vector for the patient and one
+for the caregiver within each dyad.
 
-\item Focus here on circadian patterns
+Let $\Sigma_{pc} \in {\cal R}^{p\times p}$ denote the patient/caregiver
+cross-covariance, and let $\Sigma_{pp} \in {\cal R}^{p\times p}$ and
+$\Sigma_{cc} \in {\cal R}^{p\times p}$ denote the patient
+and caregiver covariance matrices, respectively.  By analogy with
+Canonical Correlation Analysis (CCA), we seek
+matrices $A_p, A_C \in {\cal R}^{p\times q}$ that optimize
 
-\item Estimate mean circadian patterns for caregivers and patients
+$$
+\frac{|A_p^\prime \Sigma_{pc}A_c|}{[|A_p^\prime \Sigma_{pp}A_p| \cdot |A_c^\prime \Sigma_{cc}A_c|]^{1/2}}
+$$
 
-\item Identify factors that capture the individual deviations from the mean circadian pattern
+\noindent subject to the constraints $A_p^\prime A_p = I_q$ and
+$A_c^\prime A_c = I_q$, where $\|\cdot\|$ is the determinant.
 
-\item Seek dyadic effects in these individual deviations
+Due to the fairly high dimensionality the optimization posed above tends
+to overfit the data and yields results with poor split-sample
+reproducibility.  Therefore we combine the above problem with the
+PCA-like objective
 
-\item Seek dyadic effects in the HR traits (persistent, long temporal range, 
-repeated over many days) not the
-HR states (transient effects with short temporal range, unique to single days)
+$$
+\frac{|A_p^\prime \Sigma_{pp} A_p|}{|A_p^\prime A_p|}.
+$$
 
-\end{itemize}
+Specifically, we combine the CCA and PCA objectives on the log-scale
 
-\end{frame}
-
-\begin{frame}
-
-\begin{itemize}
-
-\item $y_{ijdt}$ is the heart rate for dyad $i$, role $j$, day $d$, time $t$; roles are
-caregiver ($j=1$) and patient ($j=2$)
-
-\item $\mu_j(t)$ is the mean for role $j$, and $z_{ijdt} = y_{ijdt} - \mu_j(t)$ is the 
-role-centered heart rate observation.
-
-\item Use a low-rank decomposition for incomplete matrices (essentially a factor analysis)
-to estimate factors $v_k \in {\cal R}^{1440}$ and scores $u_{ijdk}$, so that
-$y_{ijdt} \approx \mu_j(t) + u_{ijdk}\cdot v_{kt}$.
-
-\item $k=1, \ldots, K$ factors; use $K=3$ for now (mostly arbitrary choice)
-
-\item Decompose the variance of the scores according to 
-$u_{ijdk} = \theta_i + \eta_{ij} + \gamma_{idk} +\epsilon_{ijdk}$, with corresponding
-variances $\tau_\theta^2$, $\tau_\eta^2$, $\tau_\gamma^2$, and $\tau_\epsilon^2$.
-
-\item Rotate the factors to maximize $\tau_\theta^2 + 2\tau_\gamma^2$.
-
-\end{itemize}
-
-\end{frame}
+$$
+\lambda_{\rm cca}[\log |A_p^\prime \Sigma_{pc}A_c| - \log |A_p^\prime \Sigma_{pp}A_p| -
+\log |A_c^\prime \Sigma_{cc}A_c|] +
+\lambda_{\rm pca}[\log |A_p^\prime \Sigma_{
+$$
 
 \end{document}

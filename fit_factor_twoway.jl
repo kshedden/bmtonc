@@ -104,6 +104,14 @@ open(joinpath(dp, "rr.ser"), "w") do io
     serialize(io, rr)
 end
 
+scores_pt, scores_cg = predict(rr; verbose=false)
+open(joinpath(dp, "scores_pt.ser"), "w") do io
+    serialize(io, scores_pt)
+end
+open(joinpath(dp, "scores_cg.ser"), "w") do io
+    serialize(io, scores_cg)
+end
+
 cr = CompositeMultivariateAnalysis.cor(rr)
 write(out, "\nCorrelations:\n")
 show(out, "text/plain", cr)
