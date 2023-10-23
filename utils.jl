@@ -22,26 +22,33 @@ function recode_relationship(v)
     v = replace.(v, "mom"=>"mother")
     v = replace.(v, "fiance"=>"fiancé")
 
-    rr = Dict("spouse"=>"1",
-              "fiancé"=>"1",
-              "significant other"=>"1",
-              "mother"=>"0",
-              "father"=>"0",
-              "son"=>"0",
-              "daughter"=>"0",
-              "sister"=>"0",
-              "brother"=>"0",
-              "friend"=>"0",
-              "father-in-law"=>"0",
-              "aunt"=>"0",
-              "best friend"=>"0",
-              "sister-in-law"=>"0",
-              "son-in-law"=>"0",
-              "daughter-in-law"=>"0",
+    rr = Dict("spouse"=>"partner",
+              "fiancé"=>"partner",
+              "significant other"=>"partner",
+              "mother"=>"other",
+              "father"=>"other",
+              "son"=>"other",
+              "daughter"=>"other",
+              "sister"=>"other",
+              "brother"=>"other",
+              "friend"=>"other",
+              "father-in-law"=>"other",
+              "aunt"=>"other",
+              "best friend"=>"other",
+              "sister-in-law"=>"other",
+              "son-in-law"=>"other",
+              "daughter-in-law"=>"other",
               "burr"=>missing)
     v = [rr[x] for x in v]
 
     return v
+end
+
+function myparse(x)
+    d = tryparse(Date, x, dateformat"mm/dd/yy")
+    d = isnothing(d) ? missing : d
+    d += Dates.Year(2000)
+    return d
 end
 
 function load_demog(src)
@@ -68,6 +75,25 @@ function load_demog(src)
     dx[!, :age] = [ismissing(x) ? missing : Float64(x) for x in dx[:, :age]]
 
     dx[!, :cg_relationship] = recode_relationship(dx[:, :cg_relationship])
+
+    dx = filter(r->r.gender != "Other", dx)
+
+    if src == "bmt"
+        dd = open(joinpath(pa, "RM_BMT_txp_discharge_dates.csv.gz")) do io
+            CSV.read(io, DataFrame)
+        end
+        ddpt = dd[:, [:pt_rm_access_code, :bmt_date, :discharge_date]]
+        ddpt = rename(ddpt, :pt_rm_access_code=>:ID)
+        ddcg = dd[:, [:cg_rm_access_code, :bmt_date, :discharge_date]]
+        ddcg = rename(ddcg, :cg_rm_access_code=>:ID)
+        dd = vcat(ddpt, ddcg)
+        dd[!, :bmt_date] = [myparse(x) for x in dd[:, :bmt_date]]
+        dd[!, :discharge_date] = [myparse(x) for x in dd[:, :discharge_date]]
+        dx = leftjoin(dx, dd, on=:ID)
+    else
+        dx[:, :bmt_date] .= missing
+        dx[:, :discharge_date] .= missing
+    end
 
     return dx
 end
@@ -154,9 +180,14 @@ end
 function load_data2()
     bmta, bmtm = load_data("bmt")
     onca, oncm = load_data("onc")
+
+    # da[1] is metadata for patients, da[2] is metadata for caregivers
     da = [vcat(bmta[1], onca[1]), vcat(bmta[2], onca[2])]
+
+    # dm[1] is HR data for patients, dm[2] is HR data for caregivers
     dm = [vcat(bmtm[1], oncm[1]), vcat(bmtm[2], oncm[2])]
 
+    # Create a day variable that counts from the first day
     for j in 1:2
         da[j] = transform(groupby(da[j], :ID), :Date=>x->minimum(x))
         da[j] = rename(da[j], :Date_function=>:FirstDate)

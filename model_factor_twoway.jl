@@ -18,6 +18,7 @@ rm("plots", recursive = true, force = true)
 mkdir("plots")
 
 include("utils.jl")
+include("model_utils.jl")
 
 dp = "/home/kshedden/data/Sung_Choi/wide"
 
@@ -65,62 +66,6 @@ function plot_factors(rr, cr, ifig)
     return ifig
 end
 
-function prep_profile(scores_pt, scores_cg, demog, mood)
-
-    id = vcat(da[1][:, :ID], da[2][:, :ID])
-    scores = vcat(scores_pt, scores_cg)
-    date = vcat(da[1][:, :Date], da[2][:, :Date])
-    day = vcat(da[1][:, :day], da[2][:, :day])
-    n = size(da[1], 1)
-    dyad = ["$x-$y" for (x, y) in zip(da[1][:, :ID], da[2][:, :ID])]
-    dyad = vcat(dyad, dyad)
-    dx = DataFrame(person=id, scores=scores, date=date, dyad=dyad, day=day)
-    dx[:, :dayofweek] = [ismissing(x) ? missing : dayofweek(x) for x in dx[:, :date]]
-    dx[:, :dayofyear] = [ismissing(x) ? missing : dayofyear(x) for x in dx[:, :date]]
-    dx[:, :season_cos] = cos.(2*pi*dx[:, :dayofyear] / 365.25)
-    dx[:, :season_sin] = sin.(2*pi*dx[:, :dayofyear] / 365.25)
-    dd = Dict(1=>"Mo", 2=>"Tu", 3=>"We", 4=>"Th", 5=>"Fr", 6=>"Sa", 7=>"Su", missing=>missing)
-    dx[!, :dayofweek] = [dd[x] for x in dx[:, :dayofweek]]
-    dx[:, :datecat] = [ismissing(x) ? missing : string(x) for x in dx[:, :date]]
-    dx[:, :dyadday] = [ismissing(x) || ismissing(y) ? missing : @sprintf("%s:%s", x, y) for
-                       (x, y) in zip(dx[:, :datecat], dx[:, :dyad])]
-
-    # Merge in the demographic variables
-    dx = leftjoin(dx, demog, on=:person=>:ID)
-
-    # Merge in the mood variables
-    mood = select(mood, Not(:role))
-    dx = leftjoin(dx, mood, on=[:person=>:id, :date=>:date])
-
-    dx = sort(dx, [:dyad, :person, :date])
-
-    return dx
-end
-
-function setup_dx(mstruct, ranef, dx)
-
-    v = if mstruct == 1
-        [:role, :gender, :dayofweek, :season_cos, :season_sin, :age,
-         :cg_relationship, :cg_arm, :day]
-    elseif mstruct == 2
-        [:role, :gender, :dayofweek, :season_cos, :season_sin, :age,
-         :cg_relationship, :cg_arm, :day, :mood1]
-    else
-        error("Unknown mstruct")
-    end
-
-    f = if ranef
-        term(:scores) ~ term(1) + sum(term.(v)) + (term(1) | term(:dyad)) + (term(1) | term(:person)) + (term(1) | term(:dyadday))
-    else
-        term(:scores) ~ term(1) + sum(term.(v))
-    end
-
-    v = vcat(:scores, v, :dyad, :person, :dyadday)
-    dx = dx[:, v]
-    dx = dx[completecases(dx), :]
-
-    return f, dx
-end
 
 function profile_scores1(dx, mstruct, out)
 
@@ -170,22 +115,30 @@ function profile_scores_gee1(dx, mstruct, out)
         write(out, @sprintf("Seasonal peak: %.2f\n\n", peak))
     end
 
-    return mm
+    scoef = coef(mm) .* std(modelmatrix(mm), dims=1)[:]
+
+    return mm, scoef
 end
 
 function profile_scores(scores_pt, scores_cg, out)
 
     d = size(scores_pt, 2)
+    scoef = [[], [], []]
+    names = [[], [], []]
     for j in 1:d
 
-        dx = prep_profile(scores_pt[:, j], scores_cg[:, j], demog, mood)
+        dx = prep_profile(scores_pt[:, j], scores_cg[:, j], demog, mood, da)
 
         write(out, @sprintf("\n\nComponent %d:\n", j))
-        for mstruct in 1:2
+        for mstruct in 1:3
             #mmix = profile_scores1(dx, mstruct, out)
-            mgee = profile_scores_gee1(dx, mstruct, out)
+            mgee, scoef1 = profile_scores_gee1(dx, mstruct, out)
+            push!(scoef[mstruct], scoef1)
+            names[mstruct] = coefnames(mgee)
         end
     end
+
+    return scoef, names
 end
 
 
@@ -233,8 +186,63 @@ function sample_scores(scores, dm, group, ifig)
         save(@sprintf("plots/%03d.pdf", ifig), f)
         ifig += 1
     end
+
     return ifig
 end
+
+function biplot_coef(scoef, vnames, ifig)
+
+    ii = findall(x->!occursin("intercept", lowercase(x)), vnames)
+    cf = hcat(scoef...)
+    cf = cf[ii, :]
+    vnames = vnames[ii]
+
+    dr = DataFrame(name=vnames)
+    for j in 1:size(cf, 2)
+        dr[:, string(j)] = cf[:, j]
+    end
+
+    ii = findfirst(x->occursin("intervention", lowercase(x)), vnames)
+    vnames[ii] = "intervention"
+
+    u,s,v = svd(cf)
+    s = s.^2
+    s ./= sum(s)
+    println(s)
+
+    vnames = copy(vnames)
+    vnames = [replace(x, "dayofweek: "=>"") for x in vnames]
+    vnames = [replace(x, "cg_relationship: "=>"") for x in vnames]
+    vnames = [replace(x, "cg_arm: "=>"") for x in vnames]
+    vnames = [replace(x, "role: "=>"") for x in vnames]
+    vnames = [replace(x, "gender: "=>"") for x in vnames]
+
+    f = Figure()
+    title = @sprintf("Coefficient biplot")
+    ax = Axis(f[1, 1], xlabel="Dimension 1", ylabel="Dimension 2", title=title,
+              xlabelsize=18, ylabelsize=18)
+
+    for i in 1:size(v,1)
+        lines!(ax, [v[i, 1], -v[i, 1]], [v[i, 2], -v[i, 2]], color=:grey, align=:center)
+    end
+
+    text!(ax, u[:, 1], u[:, 2], text=vnames)
+    text!(ax, v[:, 1], v[:, 2], text=string.(1:size(v,1)))
+
+    save(@sprintf("plots/%03d.pdf", ifig), f)
+    ifig += 1
+
+    return dr, ifig
+end
+
+function make_biplots(ifig)
+    for k in 1:3
+        dr, ifig = biplot_coef(scoef[k], vnames[k], ifig)
+        CSV.write("coef_std$(k).csv", dr)
+    end
+    return ifig
+end
+
 
 rr = open(joinpath(dp, "rr.ser")) do io
     deserialize(io)
@@ -260,7 +268,9 @@ ifig = plot_factors(rr, cr, ifig)
 ifig = sample_scores(scores_pt, dm[1], "patient", ifig)
 ifig = sample_scores(scores_cg, dm[2], "caregiver", ifig)
 
-profile_scores(scores_pt, scores_cg, out)
+scoef, vnames = profile_scores(scores_pt, scores_cg, out)
+
+ifig = make_biplots(ifig)
 
 f = [@sprintf("plots/%03d.pdf", j) for j = 0:ifig-1]
 c = `gs -sDEVICE=pdfwrite -dNOPAUSE -dBATCH -dSAFER -sOutputFile=$2way.pdf $f`
